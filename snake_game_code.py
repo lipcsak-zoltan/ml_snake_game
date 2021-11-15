@@ -41,7 +41,7 @@ GREEN=(0,128,0)
 GREY=(105,105,105)
 
 BLOCK_SIZE = 30
-SPEED = 50
+SPEED = 500
 
 class SnakeGameML:
     
@@ -167,6 +167,89 @@ class SnakeGameML:
             y -= BLOCK_SIZE
             
         self.head = Point(x, y)
+
+#
+#neuralis halo model
+#
+
+class Linear_QNet(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super().__init__()
+        self.linear1=nn.Linear(input_size, hidden_size)
+        self.linear2=nn.Linear(hidden_size, output_size)
+    def forward(self, x):
+        x=F.relu(self.linear1(x))
+        x=self.linear2(x)
+        return x
+
+    def save(self, filename='model.pth'):
+        model_folder_path='./model'
+        if not os.path.exists(model_folder_path): #does this folder exists?
+            os.makedirs(model_folder_path)
+        
+        file_name=os.path.join(model_folder_path,filename)
+        torch.save(self.state_dict(), filename)
+
+
+class QTrainer:
+    def __init__(self, model, lr, gamma):
+        self.lr = lr
+        self.gamma = gamma
+        self.model = model
+        self.optimizer = optim.Adam(model.parameters(), lr=self.lr)
+        self.criterion = nn.MSELoss()
+
+    def train_step(self, state, action, reward, next_state, done):
+        state = torch.tensor(state, dtype=torch.float)
+        next_state = torch.tensor(next_state, dtype=torch.float)
+        action = torch.tensor(action, dtype=torch.long)
+        reward = torch.tensor(reward, dtype=torch.float)
+        
+        if len(state.shape) == 1: # if 1 dim. then convert to 2 dim.: (1, x) 
+            state = torch.unsqueeze(state, 0)
+            next_state = torch.unsqueeze(next_state, 0)
+            action = torch.unsqueeze(action, 0)
+            reward = torch.unsqueeze(reward, 0)
+            done = (done, )
+
+        # 1: predicted Q values with current state
+        pred = self.model(state) # model jelenlegi előrejelzése a állapotok összes lépésének Q-jára
+
+        # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done    
+        target = pred.clone()
+        for idx in range(len(done)): 
+            Q_new = reward[idx]
+            if not done[idx]:
+                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
+
+            # preds[argmax(action)] = Q_new
+            target[idx][torch.argmax(action[idx]).item()] = Q_new
+    
+        self.optimizer.zero_grad()
+        loss = self.criterion(target, pred) #Q_new and Q
+        loss.backward() #backprop
+        self.optimizer.step()
+
+#
+#plotting
+#
+
+plt.ion()
+
+def plot(scores, mean_scores):
+    display.clear_output(wait=True)
+    display.display(plt.gcf())
+    plt.clf()
+    plt.title('Training')
+    plt.xlabel('Lejátszott mérkőzések')
+    plt.ylabel('Score')
+    plt.plot(scores)
+    plt.plot(mean_scores)
+    plt.ylim(ymin=0)
+    plt.text(len(scores)-1, scores[-1], str(scores[-1]))
+    plt.text(len(mean_scores)-1, mean_scores[-1], str(mean_scores[-1]))
+    plt.show(block=False)
+    plt.pause(.1)
 
 #
 #agent
@@ -317,86 +400,3 @@ def train():
 
 if __name__ == '__main__':
     train()
-
-#
-#neuralis halo model
-#
-
-class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super().__init__()
-        self.linear1=nn.Linear(input_size, hidden_size)
-        self.linear2=nn.Linear(hidden_size, output_size)
-    def forward(self, x):
-        x=F.relu(self.linear1(x))
-        x=self.linear2(x)
-        return x
-
-    def save(self, filename='model.pth'):
-        model_folder_path='./model'
-        if not os.path.exists(model_folder_path): #does this folder exists?
-            os.makedirs(model_folder_path)
-        
-        file_name=os.path.join(model_folder_path,filename)
-        torch.save(self.state_dict(), filename)
-
-
-class QTrainer:
-    def __init__(self, model, lr, gamma):
-        self.lr = lr
-        self.gamma = gamma
-        self.model = model
-        self.optimizer = optim.Adam(model.parameters(), lr=self.lr)
-        self.criterion = nn.MSELoss()
-
-    def train_step(self, state, action, reward, next_state, done):
-        state = torch.tensor(state, dtype=torch.float)
-        next_state = torch.tensor(next_state, dtype=torch.float)
-        action = torch.tensor(action, dtype=torch.long)
-        reward = torch.tensor(reward, dtype=torch.float)
-        
-        if len(state.shape) == 1: # if 1 dim. then convert to 2 dim.: (1, x) 
-            state = torch.unsqueeze(state, 0)
-            next_state = torch.unsqueeze(next_state, 0)
-            action = torch.unsqueeze(action, 0)
-            reward = torch.unsqueeze(reward, 0)
-            done = (done, )
-
-        # 1: predicted Q values with current state
-        pred = self.model(state) # model jelenlegi előrejelzése a állapotok összes lépésének Q-jára
-
-        # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done    
-        target = pred.clone()
-        for idx in range(len(done)): 
-            Q_new = reward[idx]
-            if not done[idx]:
-                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
-
-            # preds[argmax(action)] = Q_new
-            target[idx][torch.argmax(action[idx]).item()] = Q_new
-    
-        self.optimizer.zero_grad()
-        loss = self.criterion(target, pred) #Q_new and Q
-        loss.backward() #backprop
-        self.optimizer.step()
-
-#
-#plotting
-#
-
-plt.ion()
-
-def plot(scores, mean_scores):
-    display.clear_output(wait=True)
-    display.display(plt.gcf())
-    plt.clf()
-    plt.title('Training')
-    plt.xlabel('Lejátszott mérkőzések')
-    plt.ylabel('Score')
-    plt.plot(scores)
-    plt.plot(mean_scores)
-    plt.ylim(ymin=0)
-    plt.text(len(scores)-1, scores[-1], str(scores[-1]))
-    plt.text(len(mean_scores)-1, mean_scores[-1], str(mean_scores[-1]))
-    plt.show(block=False)
-    plt.pause(.1)
