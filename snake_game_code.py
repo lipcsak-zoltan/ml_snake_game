@@ -15,9 +15,6 @@ import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt
 from IPython import display
-#from snake_game_ml import BLOCK_SIZE, SnakeGameML, Direction, Point
-#from model import Linear_QNet, QTrainer
-#from plotting import plot
 
 #
 #game
